@@ -171,6 +171,34 @@ def transformer_model(c: Configs):
 
 
 @option(Configs.model)
+def syntax_transformer_model(c: Configs):
+    """
+    Phase 1-3 improved model:
+      - Token-type embeddings
+      - AST structural embeddings
+      - Copy mechanism
+    """
+    from labml_nn.transformers import TransformerConfigs as TConf
+    from python_autocomplete.models.syntax_transformer import SyntaxAwareTransformer
+
+    t_conf = TConf()
+    t_conf.d_model  = c.d_model
+    t_conf.n_layers = c.n_layers
+    t_conf.n_src_vocab = c.n_tokens
+    t_conf.n_tgt_vocab = c.n_tokens
+    t_conf.dropout  = c.dropout
+
+    m = SyntaxAwareTransformer(
+        n_tokens  = c.n_tokens,
+        d_model   = c.d_model,
+        encoder   = t_conf.encoder,
+        dropout   = c.dropout,
+        use_copy  = True,
+    )
+    return m.to(c.device)
+
+
+@option(Configs.model)
 def transformer_xl_model(c: Configs):
     from labml_nn.transformers.xl import RelativeMultiHeadAttention
     from labml_nn.transformers.feed_forward import FeedForward
@@ -263,12 +291,16 @@ def _valid_loader(c: Configs):
 
 def main():
     conf = Configs()
-    # Assign one of transformer_mode, lstm_model, or rhn_model
     experiment.create(name="source_code",
-                      comment='bpe')
+                      comment='syntax-aware-transformer')
     experiment.configs(conf, {
+        # ── NEW improved model (Phase 1-3) ──────────────────────────────────
+        'model': 'syntax_transformer_model',
+        # ── or use the original models ──────────────────────────────────────
+        # 'model': 'transformer_xl_model',
         # 'model': 'transformer_model',
-        'model': 'transformer_xl_model',
+        # 'model': 'lstm_model',
+
         'n_layers': 6,
         'epochs': 32,
         'optimizer.optimizer': 'AdamW',
@@ -276,16 +308,16 @@ def main():
         'device.cuda_device': 0,
 
         'is_token_by_token': True,
-        'state_updater': 'transformer_memory',
-        'mem_len': 256,
+
+        # ── NEW python-aware tokenizer (Phase 1) ────────────────────────────
+        'text.tokenizer': 'python',
+        # ── or use original tokenizers ──────────────────────────────────────
+        # 'text.tokenizer': 'bpe',
+        # 'text.tokenizer': 'char',
 
         'text.is_shuffle': False,
-        'text.tokenizer': 'bpe',
         'text.batch_size': 12,
         'text.seq_len': 256,
-        #
-        # 'inner_iterations': 10,
-        # 'text.truncate_data': 100_000,
     })
     experiment.add_pytorch_models(model=conf.model)
     with experiment.start():
