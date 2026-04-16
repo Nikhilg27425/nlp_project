@@ -39,10 +39,26 @@ def autocomplete():
             probs = [pred.prob for pred in predictions]
             lock.release()
             s.message = f'{json.dumps(prefix[-5:])} -> {json.dumps(results)}'
-            return jsonify({'success': True, 'prediction': results, 'probs': probs})
+
+            # include model type info in response for debugging
+            return jsonify({
+                'success': True,
+                'prediction': results,
+                'probs': probs,
+                'model': type(predictor.model).__name__,
+            })
         else:
             monit.fail()
             return jsonify({'success': False})
+
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'status': 'ok',
+        'model': type(predictor.model).__name__,
+        'tokenizer': type(predictor.tokenizer).__name__,
+    })
 
 
 if __name__ == '__main__':

@@ -90,6 +90,11 @@ def _dataset(c: SourceCodeDataConfigs):
         train, valid = train[:c.truncate_data], valid[:c.truncate_data]
     if not c.tokenizer.is_trained:
         c.tokenizer.train(train + valid)
+        # persist PythonTokenizer to cache so it survives restarts
+        from python_autocomplete.dataset.python_tokenizer import PythonTokenizer
+        if isinstance(c.tokenizer, PythonTokenizer):
+            from labml.utils.cache import cache_set
+            cache_set('python_tokenizer', c.tokenizer.save())
     return SourceCodeDataset(c.tokenizer, train, valid)
 
 
@@ -111,6 +116,22 @@ def _bpe_tokenizer():
 @option(SourceCodeDataConfigs.tokenizer, 'char')
 def _char_tokenizer(c: SourceCodeDataConfigs):
     return CharacterTokenizer(c.retrain_tokenizer)
+
+
+@option(SourceCodeDataConfigs.tokenizer, 'python')
+def _python_tokenizer(c: SourceCodeDataConfigs):
+    """Python-aware token-level tokenizer (Phase 1 improvement)."""
+    from labml.utils.cache import cache_get, cache_set
+    from python_autocomplete.dataset.python_tokenizer import PythonTokenizer
+
+    cached = cache_get('python_tokenizer')
+    tok = PythonTokenizer()
+    if cached and not c.retrain_tokenizer:
+        tok.load(**cached)
+    else:
+        # will be trained when dataset is built
+        tok.is_trained = False
+    return tok
 
 
 # Data loaders
