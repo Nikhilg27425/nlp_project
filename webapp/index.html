@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Python Autocomplete — Enhanced Edition</title>
+<style>
+  /* ── reset & base ─────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #1e1e2e;
+    --surface:   #181825;
+    --surface2:  #313244;
+    --border:    #45475a;
+    --text:      #cdd6f4;
+    --subtext:   #a6adc8;
+    --green:     #a6e3a1;
+    --blue:      #89b4fa;
+    --mauve:     #cba6f7;
+    --yellow:    #f9e2af;
+    --red:       #f38ba8;
+    --teal:      #94e2d5;
+    --peach:     #fab387;
+    --overlay:   rgba(0,0,0,0.55);
+    --radius:    10px;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-ui:   'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── top bar ──────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--blue);
+  }
+
+  .logo svg { width: 22px; height: 22px; }
+
+  .badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 20px;
+    background: var(--mauve);
+    color: var(--surface);
+    letter-spacing: .5px;
+  }
+
+  .spacer { flex: 1; }
+
+  #status-bar {
+    font-size: 12px;
+    color: var(--subtext);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--yellow);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .dot.ready { background: var(--green); animation: none; }
+
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: .3; }
+  }
+
+  /* ── main layout ──────────────────────────────────────────────── */
+  main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    gap: 0;
+  }
+
+  /* ── editor pane ──────────────────────────────────────────────── */
+  .editor-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+
+  .pane-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--subtext);
+    flex-shrink: 0;
+  }
+
+  .pane-header .filename {
+    color: var(--text);
+    font-weight: 500;
+    font-family: var(--font-mono);
+  }
+
+  .tab-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--yellow);
+  }
+
+  /* editor wrapper with line numbers */
+  .editor-wrapper {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+  }
+
+  #line-numbers {
+    width: 48px;
+    padding: 16px 8px 16px 0;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--border);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  #editor {
+    flex: 1;
+    padding: 16px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text);
+    background: var(--surface);
+    border: none;
+    outline: none;
+    resize: none;
+    tab-size: 4;
+    white-space: pre;
+    overflow: auto;
+    caret-color: var(--blue);
+  }
+
+  #editor::selection { background: rgba(137,180,250,.25); }
+
+  /* ── inline ghost suggestion ──────────────────────────────────── */
+  .ghost-overlay {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 16px;
+    white-space: pre;
+    color: transparent;
+  }
+
+  .ghost-text {
+    color: rgba(166,227,161,.45);
+    font-style: italic;
+  }
+
+  /* ── autocomplete dropdown ────────────────────────────────────── */
+  #suggestions-dropdown {
+    position: fixed;
+    z-index: 1000;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    min-width: 220px;
+    max-width: 340px;
+    overflow: hidden;
+    display: none;
+  }
+
+  .dropdown-header {
+    padding: 6px 12px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    color: var(--subtext);
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .suggestion-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 12px;
+    cursor: pointer;
+    transition: background .1s;
+  }
+
+  .suggestion-item:hover,
+  .suggestion-item.active {
+    background: rgba(137,180,250,.12);
+  }
+
+  .suggestion-item.active { border-left: 2px solid var(--blue); }
+
+  .sug-text {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sug-prob {
+    font-size: 11px;
+    color: var(--subtext);
+    flex-shrink: 0;
+  }
+
+  .sug-bar {
+    width: 40px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .sug-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--blue);
+    transition: width .2s;
+  }
+
+  /* ── right panel ──────────────────────────────────────────────── */
+  .right-panel {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+
+  /* suggestions list panel */
+  .suggestions-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .panel-title {
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--subtext);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  #suggestions-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+  }
+
+  .sug-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px;
+    cursor: pointer;
+    transition: background .1s;
+    border-radius: 6px;
+    margin: 1px 6px;
+  }
+
+  .sug-row:hover { background: rgba(137,180,250,.1); }
+
+  .sug-rank {
+    font-size: 10px;
+    color: var(--border);
+    width: 14px;
+    flex-shrink: 0;
+  }
+
+  .sug-token {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sug-pct {
+    font-size: 11px;
+    color: var(--subtext);
+    flex-shrink: 0;
+  }
+
+  .prob-bar {
+    width: 50px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .prob-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width .3s;
+  }
+
+  .empty-state {
+    padding: 24px 16px;
+    text-align: center;
+    color: var(--subtext);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ── stats panel ──────────────────────────────────────────────── */
+  .stats-panel {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .stats-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--subtext);
+    margin-bottom: 10px;
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 12px;
+  }
+
+  .stat-label { color: var(--subtext); }
+  .stat-value { color: var(--text); font-family: var(--font-mono); font-weight: 600; }
+  .stat-value.green { color: var(--green); }
+  .stat-value.blue  { color: var(--blue); }
+
+  /* ── keyboard hints ───────────────────────────────────────────── */
+  .hints-panel {
+    padding: 12px 16px;
+  }
+
+  .hints-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .8px;
+    text-transform: uppercase;
+    color: var(--subtext);
+    margin-bottom: 8px;
+  }
+
+  .hint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+    color: var(--subtext);
+  }
+
+  kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    min-width: 28px;
+  }
+
+  /* ── loading overlay ──────────────────────────────────────────── */
+  #loading-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 9999;
+    backdrop-filter: blur(4px);
+  }
+
+  #loading-overlay.hidden { display: none; }
+
+  .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--blue);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text {
+    font-size: 14px;
+    color: var(--subtext);
+    max-width: 300px;
+    text-align: center;
+  }
+
+  .loading-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--blue);
+  }
+
+  /* ── scrollbar ────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-title">Python Autocomplete</div>
+  <div class="loading-text" id="loading-msg">Training model on startup…</div>
+</div>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polyline points="16 18 22 12 16 6"/>
+      <polyline points="8 6 2 12 8 18"/>
+    </svg>
+    Python Autocomplete
+  </div>
+  <span class="badge">Enhanced Edition</span>
+  <div class="spacer"></div>
+  <div id="status-bar">
+    <div class="dot" id="status-dot"></div>
+    <span id="status-text">Loading…</span>
+  </div>
+</header>
+
+<!-- Main -->
+<main>
+  <!-- Editor -->
+  <div class="editor-pane">
+    <div class="pane-header">
+      <div class="tab-dot"></div>
+      <span class="filename">main.py</span>
+    </div>
+    <div class="editor-wrapper">
+      <div id="line-numbers">1</div>
+      <textarea id="editor" spellcheck="false" autocorrect="off" autocapitalize="off"
+        placeholder="# Start typing Python code here…&#10;# Suggestions appear as you type&#10;&#10;def "></textarea>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+    <div class="suggestions-panel">
+      <div class="panel-title">Suggestions</div>
+      <div id="suggestions-list">
+        <div class="empty-state">Start typing to see<br>autocomplete suggestions</div>
+      </div>
+    </div>
+
+    <div class="stats-panel">
+      <div class="stats-title">Session Stats</div>
+      <div class="stat-row">
+        <span class="stat-label">Characters typed</span>
+        <span class="stat-value blue" id="stat-chars">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Suggestions shown</span>
+        <span class="stat-value" id="stat-shown">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Accepted</span>
+        <span class="stat-value green" id="stat-accepted">0</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">Keystrokes saved</span>
+        <span class="stat-value green" id="stat-saved">0</span>
+      </div>
+    </div>
+
+    <div class="hints-panel">
+      <div class="hints-title">Keyboard Shortcuts</div>
+      <div class="hint-row"><kbd>Tab</kbd> Accept suggestion</div>
+      <div class="hint-row"><kbd>↑</kbd><kbd>↓</kbd> Navigate list</div>
+      <div class="hint-row"><kbd>Esc</kbd> Dismiss</div>
+      <div class="hint-row"><kbd>↵</kbd> New line</div>
+    </div>
+  </div>
+</main>
+
+<!-- Floating dropdown -->
+<div id="suggestions-dropdown">
+  <div class="dropdown-header">Suggestions</div>
+</div>
+
+<script>
+// ── state ─────────────────────────────────────────────────────────────────────
+const editor      = document.getElementById('editor');
+const lineNums    = document.getElementById('line-numbers');
+const dropdown    = document.getElementById('suggestions-dropdown');
+const listPanel   = document.getElementById('suggestions-list');
+const overlay     = document.getElementById('loading-overlay');
+const loadingMsg  = document.getElementById('loading-msg');
+const statusDot   = document.getElementById('status-dot');
+const statusText  = document.getElementById('status-text');
+
+let suggestions    = [];
+let activeIdx      = 0;
+let debounceTimer  = null;
+let isReady        = false;
+
+// stats
+let statsChars    = 0;
+let statsShown    = 0;
+let statsAccepted = 0;
+let statsSaved    = 0;
+
+// ── colour palette for probability bars ───────────────────────────────────────
+function probColor(pct) {
+  if (pct >= 50) return '#a6e3a1';   // green
+  if (pct >= 20) return '#89b4fa';   // blue
+  if (pct >= 8)  return '#f9e2af';   // yellow
+  return '#a6adc8';                  // grey
+}
+
+// ── line numbers ──────────────────────────────────────────────────────────────
+function updateLineNumbers() {
+  const lines = editor.value.split('\n').length;
+  lineNums.textContent = Array.from({length: lines}, (_, i) => i + 1).join('\n');
+  lineNums.scrollTop = editor.scrollTop;
+}
+
+editor.addEventListener('scroll', () => { lineNums.scrollTop = editor.scrollTop; });
+
+// ── health polling ────────────────────────────────────────────────────────────
+async function pollHealth() {
+  try {
+    const r = await fetch('/health');
+    const d = await r.json();
+    loadingMsg.textContent = d.status;
+    statusText.textContent = d.status;
+
+    if (d.ready) {
+      isReady = true;
+      overlay.classList.add('hidden');
+      statusDot.classList.add('ready');
+      statusText.textContent = d.status;
+    } else {
+      setTimeout(pollHealth, 1500);
+    }
+  } catch {
+    setTimeout(pollHealth, 2000);
+  }
+}
+pollHealth();
+
+// ── fetch suggestions ─────────────────────────────────────────────────────────
+async function fetchSuggestions(prompt) {
+  if (!isReady || !prompt.trim()) {
+    hideSuggestions();
+    return;
+  }
+  try {
+    const r = await fetch('/autocomplete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt}),
+    });
+    const d = await r.json();
+    if (d.success && d.predictions.length) {
+      suggestions = d.predictions;
+      activeIdx   = 0;
+      statsShown++;
+      document.getElementById('stat-shown').textContent = statsShown;
+      renderDropdown();
+      renderPanel();
+    } else {
+      hideSuggestions();
+    }
+  } catch {
+    hideSuggestions();
+  }
+}
+
+// ── render floating dropdown ──────────────────────────────────────────────────
+function renderDropdown() {
+  // position near cursor
+  const coords = getCaretCoords();
+  dropdown.style.left = coords.x + 'px';
+  dropdown.style.top  = (coords.y + 20) + 'px';
+  dropdown.style.display = 'block';
+
+  // clear old items (keep header)
+  while (dropdown.children.length > 1) dropdown.removeChild(dropdown.lastChild);
+
+  suggestions.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'suggestion-item' + (i === activeIdx ? ' active' : '');
+    item.innerHTML = `
+      <span class="sug-text">${escHtml(s.text)}</span>
+      <div class="sug-bar"><div class="sug-bar-fill" style="width:${Math.min(s.prob,100)}%;background:${probColor(s.prob)}"></div></div>
+      <span class="sug-prob">${s.prob}%</span>`;
+    item.addEventListener('mousedown', e => { e.preventDefault(); acceptSuggestion(i); });
+    dropdown.appendChild(item);
+  });
+}
+
+// ── render right-panel list ───────────────────────────────────────────────────
+function renderPanel() {
+  if (!suggestions.length) {
+    listPanel.innerHTML = '<div class="empty-state">Start typing to see<br>autocomplete suggestions</div>';
+    return;
+  }
+  listPanel.innerHTML = suggestions.map((s, i) => `
+    <div class="sug-row" data-idx="${i}">
+      <span class="sug-rank">${i + 1}</span>
+      <span class="sug-token">${escHtml(s.text)}</span>
+      <div class="prob-bar"><div class="prob-fill" style="width:${Math.min(s.prob,100)}%;background:${probColor(s.prob)}"></div></div>
+      <span class="sug-pct">${s.prob}%</span>
+    </div>`).join('');
+
+  listPanel.querySelectorAll('.sug-row').forEach(el => {
+    el.addEventListener('click', () => acceptSuggestion(+el.dataset.idx));
+  });
+}
+
+function hideSuggestions() {
+  dropdown.style.display = 'none';
+  suggestions = [];
+  renderPanel();
+}
+
+// ── accept a suggestion ───────────────────────────────────────────────────────
+function acceptSuggestion(idx) {
+  if (!suggestions[idx]) return;
+  const token = suggestions[idx].text;
+  const pos   = editor.selectionStart;
+  const val   = editor.value;
+
+  editor.value = val.slice(0, pos) + token + val.slice(pos);
+  editor.selectionStart = editor.selectionEnd = pos + token.length;
+
+  statsAccepted++;
+  statsSaved += token.length > 1 ? token.length - 1 : 0;
+  document.getElementById('stat-accepted').textContent = statsAccepted;
+  document.getElementById('stat-saved').textContent    = statsSaved;
+
+  hideSuggestions();
+  updateLineNumbers();
+  editor.focus();
+}
+
+// ── keyboard handling ─────────────────────────────────────────────────────────
+editor.addEventListener('keydown', e => {
+  if (suggestions.length && dropdown.style.display !== 'none') {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = (activeIdx + 1) % suggestions.length;
+      renderDropdown(); return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = (activeIdx - 1 + suggestions.length) % suggestions.length;
+      renderDropdown(); return;
+    }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      acceptSuggestion(activeIdx); return;
+    }
+    if (e.key === 'Escape') {
+      hideSuggestions(); return;
+    }
+  }
+
+  // Tab → 4 spaces
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const pos = editor.selectionStart;
+    editor.value = editor.value.slice(0, pos) + '    ' + editor.value.slice(pos);
+    editor.selectionStart = editor.selectionEnd = pos + 4;
+    updateLineNumbers();
+  }
+});
+
+// ── input handler ─────────────────────────────────────────────────────────────
+editor.addEventListener('input', () => {
+  updateLineNumbers();
+  statsChars = editor.value.length;
+  document.getElementById('stat-chars').textContent = statsChars;
+
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    const pos    = editor.selectionStart;
+    const prompt = editor.value.slice(0, pos);
+    fetchSuggestions(prompt);
+  }, 300);
+});
+
+// ── caret position helper ─────────────────────────────────────────────────────
+function getCaretCoords() {
+  const rect = editor.getBoundingClientRect();
+  const text  = editor.value.slice(0, editor.selectionStart);
+  const lines = text.split('\n');
+  const lineH = parseFloat(getComputedStyle(editor).lineHeight) || 22;
+  const row   = lines.length - 1;
+  const col   = lines[row].length;
+
+  // approximate char width for monospace
+  const charW = 8.4;
+  const padL  = 16;
+  const padT  = 16;
+
+  return {
+    x: rect.left + padL + col * charW,
+    y: rect.top  + padT + row * lineH - editor.scrollTop,
+  };
+}
+
+// ── hide dropdown on outside click ───────────────────────────────────────────
+document.addEventListener('mousedown', e => {
+  if (!dropdown.contains(e.target) && e.target !== editor) {
+    hideSuggestions();
+  }
+});
+
+// ── escape html ───────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── initial line numbers ──────────────────────────────────────────────────────
+updateLineNumbers();
+editor.focus();
+</script>
+</body>
+</html>
