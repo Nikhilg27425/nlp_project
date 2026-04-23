@@ -29,7 +29,7 @@ ckpt_path = CKPT_DIR / 'best.pt'
 if not ckpt_path.exists():
     ckpt_path = CKPT_DIR / 'latest.pt'
 
-ckpt = torch.load(ckpt_path, map_location='cpu')
+ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
 print(f"Loaded checkpoint: epoch {ckpt['epoch']}")
 
 # ── rebuild model ─────────────────────────────────────────────────

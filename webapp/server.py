@@ -133,7 +133,7 @@ def _build_and_train():
         if os.path.exists(bundle_path):
             _status = "Loading pre-trained model…"
             import pickle
-            bundle = torch.load(bundle_path, map_location='cpu')
+            bundle = torch.load(bundle_path, map_location='cpu', weights_only=False)
             tok = bundle['tokenizer']
 
             from labml_nn.transformers import TransformerConfigs
