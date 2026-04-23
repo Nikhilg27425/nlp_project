@@ -128,6 +128,37 @@ def _build_and_train():
     global _model, _tokenizer, _ready, _status
 
     try:
+        # ── try loading a pre-trained bundle first ────────────────
+        bundle_path = os.path.join(os.path.dirname(__file__), 'model_bundle.pt')
+        if os.path.exists(bundle_path):
+            _status = "Loading pre-trained model…"
+            import pickle
+            bundle = torch.load(bundle_path, map_location='cpu')
+            tok = bundle['tokenizer']
+
+            from labml_nn.transformers import TransformerConfigs
+            D = bundle.get('d_model',  512)
+            L = bundle.get('n_layers', 6)
+            t_conf = TransformerConfigs()
+            t_conf.d_model     = D
+            t_conf.n_layers    = L
+            t_conf.n_src_vocab = tok.n_tokens
+            t_conf.n_tgt_vocab = tok.n_tokens
+            t_conf.dropout     = 0.0
+            model = SyntaxAwareTransformer(
+                n_tokens=tok.n_tokens, d_model=D,
+                encoder=t_conf.encoder, dropout=0.0, use_copy=True)
+            model.load_state_dict(bundle['model_state'])
+            model.eval()
+            _tokenizer = tok
+            _model     = model
+            _ready     = True
+            _status    = (f"Ready (pre-trained) | vocab={tok.n_tokens} "
+                          f"params={sum(p.numel() for p in model.parameters()):,} "
+                          f"epoch={bundle.get('epoch','?')}")
+            return
+
+        # ── fallback: train a demo model on startup ───────────────
         _status = "Building tokenizer…"
         tok = PythonTokenizer()
         tok.train(TRAINING_CODE)
