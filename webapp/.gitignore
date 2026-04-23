@@ -1,0 +1,5 @@
+# model bundles are too large for GitHub — download from Google Drive
+model_bundle.pt
+model_bundle.pt.zip
+*.pt
+*.pkl

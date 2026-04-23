@@ -160,7 +160,7 @@ class ASTFeatureExtractor:
                                      ast.ClassDef, ast.Lambda))
         child_depth = scope_depth + (1 if is_scope else 0)
 
-        # Collect definition names
+        # Collect definition names at this node
         local_defs: set = set()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             local_defs.add(node.name)
@@ -168,11 +168,18 @@ class ASTFeatureExtractor:
             for t in node.targets:
                 if isinstance(t, ast.Name):
                     local_defs.add(t.id)
-        elif isinstance(node, (ast.AnnAssign,)):
+                elif isinstance(t, ast.Attribute):
+                    local_defs.add(t.attr)
+        elif isinstance(node, ast.AnnAssign):
             if isinstance(node.target, ast.Name):
                 local_defs.add(node.target.id)
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            if isinstance(node.target, ast.Name):
+                local_defs.add(node.target.id)
+        elif isinstance(node, ast.arg):
+            local_defs.add(node.arg)
 
-        # Collect call names
+        # Collect call names at this node
         local_calls: set = set()
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
@@ -180,14 +187,28 @@ class ASTFeatureExtractor:
             elif isinstance(node.func, ast.Attribute):
                 local_calls.add(node.func.attr)
 
-        # Record char offset for nodes that have line/col info
+        # Record char offset for Name nodes (most tokens map to these)
         if hasattr(node, 'lineno') and hasattr(node, 'col_offset'):
             offset = _char_offset(node.lineno, node.col_offset, offset_map)
-            is_d = 1 if (hasattr(node, 'id') and node.id in def_names | local_defs) else 0
-            is_c = 1 if (hasattr(node, 'id') and node.id in call_names | local_calls) else 0
+            all_defs  = def_names  | local_defs
+            all_calls = call_names | local_calls
+
+            # is_def: this Name node's id is in the definition set
+            is_d = 0
+            if isinstance(node, ast.Name) and node.id in all_defs:
+                is_d = 1
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                    ast.ClassDef)):
+                is_d = 1   # the name token right after def/class
+
+            # is_call: this Name node is the function being called
+            is_c = 0
+            if isinstance(node, ast.Name) and node.id in all_calls:
+                is_c = 1
+
             char_map[offset] = (node_type_id, scope_depth, is_d, is_c)
 
-        # Recurse
+        # Recurse — pass accumulated defs/calls down
         for child in ast.iter_child_nodes(node):
             self._walk(child, char_map, offset_map, child_depth,
                        def_names | local_defs, call_names | local_calls)
