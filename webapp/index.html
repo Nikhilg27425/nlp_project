@@ -493,6 +493,7 @@
   <div id="status-bar">
     <div class="dot" id="status-dot"></div>
     <span id="status-text">Loading…</span>
+    <span id="latency-info" style="margin-left:12px;font-size:11px;color:#a6adc8"></span>
   </div>
 </header>
 
@@ -626,7 +627,7 @@ async function fetchSuggestions(prompt) {
     const r = await fetch('/autocomplete', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({prompt}),
+      body: JSON.stringify({prompt, top_k: 8}),
     });
     const d = await r.json();
     if (d.success && d.predictions.length) {
@@ -634,6 +635,16 @@ async function fetchSuggestions(prompt) {
       activeIdx   = 0;
       statsShown++;
       document.getElementById('stat-shown').textContent = statsShown;
+
+      // show latency + cache badge in status bar
+      const latEl = document.getElementById('latency-info');
+      if (latEl) {
+        const badge = d.cached
+          ? `<span style="color:#a6e3a1">⚡ cache</span>`
+          : `<span style="color:#89b4fa">🧠 model</span>`;
+        latEl.innerHTML = `${badge} ${d.latency_ms}ms`;
+      }
+
       renderDropdown();
       renderPanel();
     } else {

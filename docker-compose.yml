@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+
+  # ── Redis cache ─────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: autocomplete_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI server ──────────────────────────────────────────────
+  api:
+    build: .
+    container_name: autocomplete_api
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CACHE_TTL=3600
+    volumes:
+      # mount model bundle without baking it into the image
+      - ./webapp/model_bundle.pt:/app/webapp/model_bundle.pt:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
+volumes:
+  redis_data:
